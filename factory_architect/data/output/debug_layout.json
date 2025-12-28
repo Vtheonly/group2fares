@@ -1,0 +1,300 @@
+{
+  "room_width": 35500.0,
+  "room_height": 15000.0,
+  "machines": [
+    {
+      "id": "m_mix",
+      "name": "Anode Mixer",
+      "dimensions": {
+        "length": 3000.0,
+        "width": 2500.0
+      },
+      "position": {
+        "x": 3000.0,
+        "y": 5000.0
+      },
+      "rotation": 0.0
+    },
+    {
+      "id": "m_coat",
+      "name": "Coating Machine",
+      "dimensions": {
+        "length": 4000.0,
+        "width": 2000.0
+      },
+      "position": {
+        "x": 8000.0,
+        "y": 5000.0
+      },
+      "rotation": 0.0
+    },
+    {
+      "id": "m_dry",
+      "name": "Drying Oven",
+      "dimensions": {
+        "length": 8000.0,
+        "width": 3000.0
+      },
+      "position": {
+        "x": 15500.0,
+        "y": 5000.0
+      },
+      "rotation": 0.0
+    },
+    {
+      "id": "m_cal",
+      "name": "Calendaring Press",
+      "dimensions": {
+        "length": 2500.0,
+        "width": 2500.0
+      },
+      "position": {
+        "x": 22250.0,
+        "y": 9250.0
+      },
+      "rotation": 90.0
+    },
+    {
+      "id": "m_slit",
+      "name": "Slitting Machine",
+      "dimensions": {
+        "length": 2000.0,
+        "width": 1500.0
+      },
+      "position": {
+        "x": 22250.0,
+        "y": 13000.0
+      },
+      "rotation": 90.0
+    },
+    {
+      "id": "m_wind_1",
+      "name": "Winding Unit 1",
+      "dimensions": {
+        "length": 1500.0,
+        "width": 1500.0
+      },
+      "position": {
+        "x": 25250.0,
+        "y": 12750.0
+      },
+      "rotation": 0.0
+    },
+    {
+      "id": "m_wind_2",
+      "name": "Winding Unit 2",
+      "dimensions": {
+        "length": 1500.0,
+        "width": 1500.0
+      },
+      "position": {
+        "x": 25250.0,
+        "y": 9750.0
+      },
+      "rotation": 0.0
+    },
+    {
+      "id": "m_asm",
+      "name": "Assembly Robot",
+      "dimensions": {
+        "length": 2000.0,
+        "width": 2000.0
+      },
+      "position": {
+        "x": 28500.0,
+        "y": 11250.0
+      },
+      "rotation": 0.0
+    },
+    {
+      "id": "m_fill",
+      "name": "Electrolyte Filler",
+      "dimensions": {
+        "length": 3000.0,
+        "width": 2000.0
+      },
+      "position": {
+        "x": 32500.0,
+        "y": 11250.0
+      },
+      "rotation": 0.0
+    }
+  ],
+  "flow_connections": [
+    {
+      "from_machine_id": "m_mix",
+      "to_machine_id": "m_coat",
+      "connection_type": "pump_line",
+      "path_points": [
+        {
+          "x": 4500.0,
+          "y": 5000.0
+        },
+        {
+          "x": 6000.0,
+          "y": 5000.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_coat",
+      "to_machine_id": "m_dry",
+      "connection_type": "conveyor",
+      "path_points": [
+        {
+          "x": 10000.0,
+          "y": 5000.0
+        },
+        {
+          "x": 11500.0,
+          "y": 5000.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_dry",
+      "to_machine_id": "m_cal",
+      "connection_type": "roller_conveyor",
+      "path_points": [
+        {
+          "x": 19500.0,
+          "y": 5000.0
+        },
+        {
+          "x": 20500.0,
+          "y": 5000.0
+        },
+        {
+          "x": 20500.0,
+          "y": 8000.0
+        },
+        {
+          "x": 22250.0,
+          "y": 8000.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_cal",
+      "to_machine_id": "m_slit",
+      "connection_type": "conveyor",
+      "path_points": [
+        {
+          "x": 22250.0,
+          "y": 10500.0
+        },
+        {
+          "x": 22250.0,
+          "y": 12000.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_slit",
+      "to_machine_id": "m_wind_1",
+      "connection_type": "diverter",
+      "path_points": [
+        {
+          "x": 23000.0,
+          "y": 13000.0
+        },
+        {
+          "x": 24000.0,
+          "y": 13000.0
+        },
+        {
+          "x": 24000.0,
+          "y": 12750.0
+        },
+        {
+          "x": 24500.0,
+          "y": 12750.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_slit",
+      "to_machine_id": "m_wind_2",
+      "connection_type": "diverter",
+      "path_points": [
+        {
+          "x": 23000.0,
+          "y": 13000.0
+        },
+        {
+          "x": 24000.0,
+          "y": 13000.0
+        },
+        {
+          "x": 24000.0,
+          "y": 9750.0
+        },
+        {
+          "x": 24500.0,
+          "y": 9750.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_wind_1",
+      "to_machine_id": "m_asm",
+      "connection_type": "agv_path",
+      "path_points": [
+        {
+          "x": 26000.0,
+          "y": 12750.0
+        },
+        {
+          "x": 27000.0,
+          "y": 12750.0
+        },
+        {
+          "x": 27000.0,
+          "y": 11250.0
+        },
+        {
+          "x": 27500.0,
+          "y": 11250.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_wind_2",
+      "to_machine_id": "m_asm",
+      "connection_type": "agv_path",
+      "path_points": [
+        {
+          "x": 26000.0,
+          "y": 9750.0
+        },
+        {
+          "x": 27000.0,
+          "y": 9750.0
+        },
+        {
+          "x": 27000.0,
+          "y": 11250.0
+        },
+        {
+          "x": 27500.0,
+          "y": 11250.0
+        }
+      ]
+    },
+    {
+      "from_machine_id": "m_asm",
+      "to_machine_id": "m_fill",
+      "connection_type": "conveyor",
+      "path_points": [
+        {
+          "x": 29500.0,
+          "y": 11250.0
+        },
+        {
+          "x": 31000.0,
+          "y": 11250.0
+        }
+      ]
+    }
+  ]
+}
