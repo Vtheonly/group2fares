@@ -1,47 +1,60 @@
 import json
 import os
+import sys
 from loguru import logger
 from src.core.config import settings
 from src.models.schema import FactoryInput
-from src.services.ai_engine import LayoutIntelligence
+from src.services.ai_engine import LayoutIntelligence, PlanerIntelligence
 from src.services.dxf_engine import DXFRenderer
-
-def load_input() -> FactoryInput:
-    if not os.path.exists(settings.INPUT_FILE):
-        raise FileNotFoundError(f"Input file not found at {settings.INPUT_FILE}")
-    
-    with open(settings.INPUT_FILE, "r") as f:
-        try:
-            data = json.load(f)
-            return FactoryInput(**data)
-        except Exception as e:
-            logger.error(f"Failed to parse input.json: {e}")
-            raise
 
 def main():
     logger.info("Initializing Factory Architect System...")
     
+    planer = PlanerIntelligence()
+    intelligence = LayoutIntelligence()
+    
     try:
-        # 1. Ingest
-        input_data = load_input()
+        # Phase 0: Planning (from project notes if available)
+        main_entry_path = os.path.join(os.path.dirname(settings.INPUT_FILE), "main_entry.json")
         
-        # 2. Compute (AI)
-        ai = LayoutIntelligence()
-        layout = ai.compute_layout(input_data)
+        if os.path.exists(main_entry_path):
+            logger.info(f"Discovery: Found project notes at {main_entry_path}. Initiating Planning...")
+            with open(main_entry_path, "r") as f:
+                notes = json.load(f)
+            
+            # Extract production line input
+            factory_input = planer.generate_input_schema(notes)
+            
+            # Save for transparency and next run
+            with open(settings.INPUT_FILE, "w") as f:
+                json.dump(factory_input.model_dump(), f, indent=4)
+            logger.success(f"Plan created and saved to {settings.INPUT_FILE}")
+        else:
+            # Traditional Ingest
+            if not os.path.exists(settings.INPUT_FILE):
+                logger.error("No project notes (main_entry.json) or layout input (input.json) found.")
+                return
+            with open(settings.INPUT_FILE, "r") as f:
+                data = json.load(f)
+                factory_input = FactoryInput(**data)
+
+        # Phase 1: Layout Computation (AI)
+        layout = intelligence.compute_layout(factory_input)
         
-        # Dump Intermediate Logic
+        # Phase 2: Render (CAD)
         debug_path = os.path.join(settings.OUTPUT_DIR, "debug_layout.json")
         with open(debug_path, "w") as f:
             f.write(layout.model_dump_json(indent=2))
 
-        # 3. Render (CAD)
-        dxf_path = os.path.join(settings.OUTPUT_DIR, f"{input_data.project_name}.dxf")
+        dxf_path = os.path.join(settings.OUTPUT_DIR, f"{factory_input.project_name}.dxf")
         renderer = DXFRenderer(dxf_path)
         renderer.render(layout)
 
+        logger.success("Pipeline completed successfully.")
+
     except Exception as e:
         logger.critical(f"System Halted: {e}")
-        exit(1)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

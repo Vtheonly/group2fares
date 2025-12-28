@@ -1,106 +1,93 @@
 {
-    "project_name": "Tesla_Battery_Line_C_Advanced",
-    "process_description": "A high-speed battery assembly line. The process starts with mixing, then moves to coating and drying. Note that the drying oven is very long. After drying, the line splits into two parallel winding units before converging back for assembly and filling. The layout should be compact.",
+    "project_name": "ALLO MAISON \u2013 Complexe Industriel Polym\u00e8re & Mat\u00e9riaux Avanc\u00e9s",
+    "process_description": "The SPC Flooring line processes PVC resin and calcium carbonate via high-speed mixing, followed by twin-screw extrusion into a continuous core sheet. This sheet is laminated with decorative film and wear layer, cooled for dimensional stability, cut into planks, and finally precision-profiled using a double-end tenoner to create the waterproof click-lock system.",
     "machines": [
         {
-            "id": "m_mix",
-            "name": "Anode Mixer",
-            "length": 3000,
-            "width": 2500
+            "id": "m_mixer",
+            "name": "High-Speed Mixer (PVC/Stone Powder)",
+            "dimensions": {
+                "length": 3000.0,
+                "width": 2500.0
+            }
         },
         {
-            "id": "m_coat",
-            "name": "Coating Machine",
-            "length": 4000,
-            "width": 2000
+            "id": "m_extruder",
+            "name": "Twin-Screw Extruder & Die Head",
+            "dimensions": {
+                "length": 15000.0,
+                "width": 3000.0
+            }
         },
         {
-            "id": "m_dry",
-            "name": "Drying Oven",
-            "length": 8000,
-            "width": 3000
+            "id": "m_calender",
+            "name": "4-Roll Calender & Lamination Unit",
+            "dimensions": {
+                "length": 8000.0,
+                "width": 4000.0
+            }
         },
         {
-            "id": "m_cal",
-            "name": "Calendaring Press",
-            "length": 2500,
-            "width": 2500
+            "id": "m_cooler",
+            "name": "Multi-Zone Cooling Rack & Haul-Off",
+            "dimensions": {
+                "length": 20000.0,
+                "width": 2500.0
+            }
         },
         {
-            "id": "m_slit",
-            "name": "Slitting Machine",
-            "length": 2000,
-            "width": 1500
+            "id": "m_cutter",
+            "name": "Automatic Cross Cutter & Trimmer",
+            "dimensions": {
+                "length": 4000.0,
+                "width": 3000.0
+            }
         },
         {
-            "id": "m_wind_1",
-            "name": "Winding Unit 1",
-            "length": 1500,
-            "width": 1500
+            "id": "m_profiler",
+            "name": "Double-End Tenoner (Click System)",
+            "dimensions": {
+                "length": 12000.0,
+                "width": 4500.0
+            }
         },
         {
-            "id": "m_wind_2",
-            "name": "Winding Unit 2",
-            "length": 1500,
-            "width": 1500
-        },
-        {
-            "id": "m_asm",
-            "name": "Assembly Robot",
-            "length": 2000,
-            "width": 2000
-        },
-        {
-            "id": "m_fill",
-            "name": "Electrolyte Filler",
-            "length": 3000,
-            "width": 2000
+            "id": "m_packer",
+            "name": "Automated Stacking & Packaging System",
+            "dimensions": {
+                "length": 6000.0,
+                "width": 2000.0
+            }
         }
     ],
     "relationships": [
         {
-            "from_id": "m_mix",
-            "to_id": "m_coat",
-            "type": "pump_line"
+            "from_id": "m_mixer",
+            "to_id": "m_extruder",
+            "type": "pipe"
         },
         {
-            "from_id": "m_coat",
-            "to_id": "m_dry",
+            "from_id": "m_extruder",
+            "to_id": "m_calender",
             "type": "conveyor"
         },
         {
-            "from_id": "m_dry",
-            "to_id": "m_cal",
-            "type": "roller_conveyor"
-        },
-        {
-            "from_id": "m_cal",
-            "to_id": "m_slit",
+            "from_id": "m_calender",
+            "to_id": "m_cooler",
             "type": "conveyor"
         },
         {
-            "from_id": "m_slit",
-            "to_id": "m_wind_1",
-            "type": "diverter"
+            "from_id": "m_cooler",
+            "to_id": "m_cutter",
+            "type": "conveyor"
         },
         {
-            "from_id": "m_slit",
-            "to_id": "m_wind_2",
-            "type": "diverter"
+            "from_id": "m_cutter",
+            "to_id": "m_profiler",
+            "type": "conveyor"
         },
         {
-            "from_id": "m_wind_1",
-            "to_id": "m_asm",
-            "type": "agv_path"
-        },
-        {
-            "from_id": "m_wind_2",
-            "to_id": "m_asm",
-            "type": "agv_path"
-        },
-        {
-            "from_id": "m_asm",
-            "to_id": "m_fill",
+            "from_id": "m_profiler",
+            "to_id": "m_packer",
             "type": "conveyor"
         }
     ]

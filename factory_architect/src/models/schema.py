@@ -14,8 +14,7 @@ class Point2D(BaseModel):
 class MachineInput(BaseModel):
     id: str
     name: str
-    length: float
-    width: float
+    dimensions: Dimensions
 
 class RelationshipInput(BaseModel):
     from_id: str
