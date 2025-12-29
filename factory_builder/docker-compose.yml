@@ -1,0 +1,11 @@
+services:
+  builder:
+    build: .
+    volumes:
+      # Mount local folders for input/output
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./cache:/app/cache
+    environment:
+      # Override API URL via environment variable if needed
+      - API_URL=${API_URL:-https://prettyish-melanie-aurous.ngrok-free.dev/generate}
