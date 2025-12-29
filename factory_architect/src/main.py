@@ -1,14 +1,17 @@
 import json
 import os
 import sys
+import argparse
+from pathlib import Path
 from loguru import logger
 from src.core.config import settings
 from src.models.schema import FactoryInput
 from src.services.ai_engine import LayoutIntelligence, PlanerIntelligence
 from src.services.dxf_engine import DXFRenderer
 
-def main():
-    logger.info("Initializing Factory Architect System...")
+def run_traditional_pipeline():
+    """Traditional DXF-only pipeline (backward compatible)."""
+    logger.info("Initializing Factory Architect System (Traditional Mode)...")
     
     planer = PlanerIntelligence()
     intelligence = LayoutIntelligence()
@@ -55,6 +58,49 @@ def main():
     except Exception as e:
         logger.critical(f"System Halted: {e}")
         sys.exit(1)
+
+def run_orchestration_pipeline():
+    """Full end-to-end orchestration pipeline."""
+    from src.services.orchestrator import FactoryOrchestrator
+    
+    logger.info("Initializing Factory Architect System (Orchestration Mode)...")
+    
+    try:
+        # Load input
+        if not os.path.exists(settings.INPUT_FILE):
+            logger.error(f"Input file not found: {settings.INPUT_FILE}")
+            sys.exit(1)
+        
+        with open(settings.INPUT_FILE, "r") as f:
+            data = json.load(f)
+            factory_input = FactoryInput(**data)
+        
+        # Execute orchestration
+        orchestrator = FactoryOrchestrator(Path(settings.OUTPUT_DIR))
+        scene_path = orchestrator.execute(factory_input)
+        
+        logger.success(f"✓ Orchestration completed: {scene_path}")
+        
+    except Exception as e:
+        logger.critical(f"System Halted: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(description="Factory Architect - Industrial Layout Generation")
+    parser.add_argument(
+        "--orchestrate",
+        action="store_true",
+        help="Run full orchestration pipeline (scraping → DXF → 3D → scene)"
+    )
+    
+    args = parser.parse_args()
+    
+    if args.orchestrate:
+        run_orchestration_pipeline()
+    else:
+        run_traditional_pipeline()
 
 if __name__ == "__main__":
     main()

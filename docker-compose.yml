@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # Factory Architect - AI Layout & DXF Generation
+  architect:
+    build: ./factory_architect
+    container_name: factory_architect
+    volumes:
+      - ./shared_data:/app/data
+      - ./factory_builder:/factory_builder  # Mount for import
+    env_file:
+      - ./factory_architect/.env
+    environment:
+      - INPUT_FILE=/app/data/input.json
+      - OUTPUT_DIR=/app/data/output
+    command: python -m src.main --orchestrate
+  
+  # Factory Builder - 3D Model Generation (standalone mode)
+  builder:
+    build: ./factory_builder
+    container_name: factory_builder
+    volumes:
+      - ./shared_data:/app/shared
+    environment:
+      - API_URL=${API_URL:-https://prettyish-melanie-aurous.ngrok-free.dev/generate}
+    profiles:
+      - standalone  # Only run when explicitly called

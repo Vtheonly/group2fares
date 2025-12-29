@@ -15,6 +15,7 @@ class FactoryEntity:
     type: str  # 'MACHINE', 'TEXT', 'PORT'
     position: Vector3
     rotation: float = 0.0
+    dimensions: Tuple[float, float] = (2000.0, 2000.0)  # Length, Width
     
     # Processing State
     image_path: Optional[str] = None
@@ -26,6 +27,15 @@ class FactoryEntity:
         return "".join([c if c.isalnum() else "_" for c in self.name]).strip()
 
 @dataclass
+class ProductionLine:
+    """Represents a connection/pipe between machines."""
+    id: str
+    from_id: str
+    to_id: str
+    conn_type: str  # 'pump_line', 'conveyor', etc.
+    vertices: List[Vector3] = field(default_factory=list)
+
+@dataclass
 class FactoryLayout:
     """Represents the entire floor plan."""
     source_file: str
@@ -33,3 +43,4 @@ class FactoryLayout:
     height: float
     center: Vector3
     entities: List[FactoryEntity] = field(default_factory=list)
+    production_lines: List[ProductionLine] = field(default_factory=list)

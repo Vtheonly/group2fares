@@ -88,7 +88,9 @@ class DXFRenderer:
             insert.set_xdata("FACTORY_ARCHITECT", [
                 (1000, "TYPE:MACHINE_NODE"),
                 (1000, f"ID:{m.id}"),
-                (1000, f"NAME:{m.name}")
+                (1000, f"NAME:{m.name}"),
+                (1000, f"LENGTH:{m.dimensions.length}"),
+                (1000, f"WIDTH:{m.dimensions.width}")
             ])
 
         # 3. Connections (Edges)

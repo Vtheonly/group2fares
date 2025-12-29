@@ -47,31 +47,53 @@ class CloudRenderer:
 
         try:
             with open(entity.image_path, 'rb') as f:
-                files = {'file': (f"{entity.clean_name}.png", f, 'image/png')}
-                
-                # High timeout because Colab GPU queue handles requests sequentially
-                response = requests.post(
-                    Config.API_URL, 
-                    files=files, 
-                    stream=True, 
-                    timeout=Config.API_TIMEOUT
-                )
+                # Retry loop for connection/network issues
+                max_retries = 5
+                for attempt in range(max_retries):
+                    try:
+                        # Re-open file pointer for each attempt if needed or seek 0
+                        f.seek(0) 
+                        files = {'file': (f"{entity.clean_name}.png", f, 'image/png')}
+                        
+                        log.info(f"Uploading {entity.name} (Attempt {attempt+1}/{max_retries})...")
+                        
+                        # High timeout because Colab GPU queue handles requests sequentially
+                        response = requests.post(
+                            Config.API_URL, 
+                            files=files, 
+                            stream=True, 
+                            timeout=Config.API_TIMEOUT
+                        )
 
-                if response.status_code == 200:
-                    # Write in chunks to keep memory usage low
-                    with open(output_path, 'wb') as f_out:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            if chunk: f_out.write(chunk)
-                    
-                    log.info(f"✨ Generated 3D Model: {entity.name}")
-                    return str(output_path)
-                else:
-                    log.error(f"Server Error {entity.name}: {response.text}")
-                    return None
+                        if response.status_code == 200:
+                            # Ensure directory exists
+                            output_path.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            # Write in chunks to keep memory usage low
+                            with open(output_path, 'wb') as f_out:
+                                for chunk in response.iter_content(chunk_size=8192):
+                                    if chunk: f_out.write(chunk)
+                            
+                            log.info(f"✨ Generated 3D Model: {entity.name}")
+                            return str(output_path)
+                        else:
+                            log.error(f"Server Error {entity.name}: {response.text}")
+                            # If 500 error, maybe retry? For now, break if server explicitly rejects
+                            if response.status_code < 500:
+                                return None
+                                
+                    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                        wait = (attempt + 1) * 5
+                        log.warning(f"Connection/Timeout for {entity.name}: {e}. Retrying in {wait}s...")
+                        import time
+                        time.sleep(wait)
+                    except Exception as e:
+                        log.error(f"Unexpected error for {entity.name}: {e}")
+                        return None
+                        
+                log.error(f"Failed to generate model for {entity.name} after {max_retries} attempts.")
+                return None
 
-        except requests.exceptions.Timeout:
-            log.error(f"Timeout: {entity.name} took too long in queue.")
-            return None
         except Exception as e:
-            log.error(f"Connection Error {entity.name}: {e}")
+            log.error(f"File Error {entity.name}: {e}")
             return None

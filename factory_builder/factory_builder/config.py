@@ -3,9 +3,11 @@ from pathlib import Path
 
 class Config:
     # --- Paths ---
+    # --- Paths ---
     BASE_DIR = Path(os.getcwd())
-    INPUT_DIR = BASE_DIR / "input"
-    OUTPUT_DIR = BASE_DIR / "output"
+    # Strict paths as requested by user - matching Docker volume mount at root
+    INPUT_DIR = Path("/factory_builder/input")
+    OUTPUT_DIR = Path("/factory_builder/output")
     CACHE_DIR = BASE_DIR / "cache"
     
     IMAGES_DIR = CACHE_DIR / "images"
@@ -23,7 +25,7 @@ class Config:
     
     # --- Processing ---
     # Number of concurrent uploads to the Colab queue
-    MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
+    MAX_WORKERS = int(os.getenv("MAX_WORKERS", "1"))
     
     # Target size for 3D machines (in mm approx) to normalize scaling
     TARGET_MACHINE_SIZE = float(os.getenv("TARGET_MACHINE_SIZE", "3000.0"))

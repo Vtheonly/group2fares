@@ -151,6 +151,7 @@ Thumbs.db
 # Project specific
 cache/
 output/
+shared_data/
 data/input.json
 factory_builder/venv/
 factory_architect/.env
