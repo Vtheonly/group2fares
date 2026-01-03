@@ -31,7 +31,7 @@ def main():
     CloudRenderer().generate_models(layout.entities)
 
     # 5. Assemble Scene
-    output_name = f"{input_path.stem}_scene.glb"
+    output_name = f"{input_path.stem}_scene_gray.glb"
     SceneComposer().build(layout, output_name)
 
 if __name__ == "__main__":

@@ -61,6 +61,14 @@ class SceneComposer:
                     scale = Config.TARGET_MACHINE_SIZE / np.max(mesh.extents)
                     mesh.apply_scale(scale)
                 
+                # Force Gray Color
+                # Remove texture visuals if present to ensure color shows
+                if hasattr(mesh.visual, 'material'):
+                    mesh.visual.material = trimesh.visual.material.SimpleMaterial(image=None)
+                
+                # Set uniform gray
+                mesh.visual.face_colors = [150, 150, 150, 255]
+                
                 # Rotate X 90 (GLB Y-up vs CAD Z-up)
                 rot_x = trimesh.transformations.rotation_matrix(np.pi/2, [1,0,0])
                 mesh.apply_transform(rot_x)

@@ -6,8 +6,9 @@ class Config:
     # --- Paths ---
     BASE_DIR = Path(os.getcwd())
     # Strict paths as requested by user - matching Docker volume mount at root
-    INPUT_DIR = Path("/factory_builder/input")
-    OUTPUT_DIR = Path("/factory_builder/output")
+    # For local dev, use relative paths
+    INPUT_DIR = BASE_DIR / "input"
+    OUTPUT_DIR = BASE_DIR / "output"
     CACHE_DIR = BASE_DIR / "cache"
     
     IMAGES_DIR = CACHE_DIR / "images"

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Factory 5.0 Twin Viewer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0e1117; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        /* The Tooltip Window - Redesigned for "Premium" look */
+        #tooltip {
+            position: absolute; 
+            display: none;
+            pointer-events: none;
+            z-index: 100;
+            background: rgba(10, 15, 25, 0.9);
+            backdrop-filter: blur(12px);
+            border-left: 4px solid #00d2ff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+            border-radius: 4px;
+            padding: 18px;
+            min-width: 240px;
+            color: white;
+            transition: opacity 0.2s;
+        }
+
+        #tooltip h3 { 
+            margin: 0 0 12px 0; 
+            color: #00d2ff; 
+            font-size: 14px; 
+            font-weight: 600;
+            text-transform: uppercase; 
+            letter-spacing: 1.5px; 
+            display: flex;
+            align-items: center;
+        }
+        
+        #tooltip h3::before {
+            content: "";
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #00ff88;
+            border-radius: 50%;
+            margin-right: 10px;
+            box-shadow: 0 0 8px #00ff88;
+        }
+
+        #tooltip .row { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 8px; 
+            font-size: 12px; 
+            color: #888; 
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 4px;
+        }
+        #tooltip .val { color: #fff; font-weight: 600; font-family: 'Courier New', monospace; }
+        #tooltip .health-bar {
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        #tooltip .health-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d2ff, #00ff88);
+            width: 0%;
+        }
+
+        #loading-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #0e1117; color: #00d2ff; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 1000;
+        }
+        .spinner { border: 2px solid rgba(0, 210, 255, 0.1); border-left-color: #00d2ff; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text" style="letter-spacing: 2px; font-size: 12px;">INITIALIZING TWIN...</div>
+    </div>
+
+    <div id="tooltip">
+        <h3 id="tt-name">ENTITY_NAME</h3>
+        <div id="tt-metrics">
+            <!-- Dynamic Metrics Injection -->
+        </div>
+        <div class="health-bar"><div id="tt-health" class="health-fill"></div></div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+        import TWEEN from 'https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.2/dist/tween.esm.js';
+
+        // --- 1. GLOBAL STATE & SYNC ---
+        let currentSnapshot = {}; // Stores real-time telemetry from Streamlit
+        
+        window.addEventListener('message', (event) => {
+            const { type, data } = event.data;
+            if (type === 'SYNC_DATA') {
+                currentSnapshot = data;
+            } else if (type === 'FOCUS') {
+                focusOnObject(data);
+            }
+        });
+
+        // --- 2. SETUP SCENE ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0e1117);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 10, 2000000);
+        camera.position.set(30000, 30000, 30000);
+        camera.up.set(0, 0, 1);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        container.appendChild(renderer.domElement);
+
+        const ambLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(20000, 20000, 40000);
+        scene.add(dirLight);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
+        outlinePass.edgeStrength = 10.0;
+        outlinePass.edgeGlow = 1.0;
+        outlinePass.edgeThickness = 2.0;
+        outlinePass.pulsePeriod = 2; // Pulsing effect for focused items
+        outlinePass.visibleEdgeColor.set('#00d2ff');
+        outlinePass.hiddenEdgeColor.set('#003344');
+        composer.addPass(outlinePass);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById('tooltip');
+        
+        // --- 3. CAMERA SNAP LOGIC ---
+        function focusOnObject(name) {
+            let targetObj = null;
+            scene.traverse((child) => {
+                if (child.isMesh && child.name.toLowerCase().includes(name.toLowerCase())) {
+                    targetObj = child;
+                }
+            });
+
+            if (targetObj) {
+                const box = new THREE.Box3().setFromObject(targetObj);
+                const center = new THREE.Vector3();
+                box.getCenter(center);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z);
+
+                new TWEEN.Tween(controls.target)
+                    .to({ x: center.x, y: center.y, z: center.z }, 1000)
+                    .easing(TWEEN.Easing.Quadratic.InOut)
+                    .start();
+
+                const offset = maxDim * 4;
+                new TWEEN.Tween(camera.position)
+                    .to({ 
+                        x: center.x + offset, 
+                        y: center.y - offset, 
+                        z: center.z + offset * 0.5 
+                    }, 1200)
+                    .easing(TWEEN.Easing.Cubic.InOut)
+                    .start();
+                
+                outlinePass.selectedObjects = [targetObj];
+            }
+        }
+
+        // --- 4. INTERACTION & TOOLTIP UPDATER ---
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            
+            if(tooltip.style.display === 'block') {
+                tooltip.style.left = (e.clientX + 20) + 'px';
+                tooltip.style.top = (e.clientY + 20) + 'px';
+            }
+        }, false);
+
+        function updateTooltipContent(objName) {
+            // Find machine ID in currentSnapshot
+            let mId = null;
+            for (let id in currentSnapshot) {
+                if (objName.toLowerCase().includes(id.toLowerCase())) {
+                    mId = id;
+                    break;
+                }
+            }
+
+            const ttName = document.getElementById('tt-name');
+            const ttMetrics = document.getElementById('tt-metrics');
+            const ttHealth = document.getElementById('tt-health');
+
+            if (mId && currentSnapshot[mId]) {
+                const data = currentSnapshot[mId];
+                ttName.innerText = mId.replace("m_", "").toUpperCase();
+                
+                let html = '';
+                for (let [mName, mVal] of Object.entries(data.metrics)) {
+                    html += `<div class="row"><span>${mName}</span><span class="val">${mVal}</span></div>`;
+                }
+                ttMetrics.innerHTML = html;
+                ttHealth.style.width = data.health + '%';
+            } else {
+                ttName.innerText = objName.replace(/_/g, ' ').toUpperCase();
+                ttMetrics.innerHTML = '<div class="row"><span>Status</span><span class="val">NOMINAL</span></div>';
+                ttHealth.style.width = '100%';
+            }
+        }
+
+        // --- 5. LOADING ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const modelName = urlParams.get('model') || 'ALLO_MAISON_Complexe_Industriel_Polymère_Matériaux_Avancés_scene_gray.glb';
+        const modelUrl = `http://localhost:8000/static/output/${modelName}`;
+
+        const loader = new GLTFLoader();
+        loader.load(
+            modelUrl,
+            (gltf) => {
+                scene.add(gltf.scene);
+                document.getElementById('loading-overlay').style.display = 'none';
+                
+                // Set initial view
+                const box = new THREE.Box3().setFromObject(gltf.scene);
+                const center = box.getCenter(new THREE.Vector3());
+                controls.target.copy(center);
+                controls.update();
+            },
+            (xhr) => {
+                const p = Math.round((xhr.loaded / xhr.total) * 100);
+                document.getElementById('loading-text').innerText = `CALIBRATING TWIN... ${p}%`;
+            }
+        );
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            TWEEN.update(time);
+            controls.update();
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            if (intersects.length > 0) {
+                const hit = intersects.find(i => i.object.type === 'Mesh' && i.object.name !== 'floor' && !i.object.name.startsWith('pipe'));
+                if (hit) {
+                    const obj = hit.object;
+                    // Dont change outline if something is focused by streamlit (unless we WANT to override)
+                    // Let's allow hover to show tooltips but keep focused outline persistent? 
+                    // Actually, let's just make it response to hover for now.
+                    if (outlinePass.selectedObjects.length <= 1) {
+                         outlinePass.selectedObjects = [obj];
+                    }
+                    
+                    tooltip.style.display = 'block';
+                    updateTooltipContent(obj.name);
+                } else {
+                    tooltip.style.display = 'none';
+                    // clear outline only if not focused
+                    if (outlinePass.selectedObjects.length === 1 && !st_focused(outlinePass.selectedObjects[0])) {
+                         // logic to clear? Let's skip complexity for now.
+                    }
+                }
+            } else {
+                tooltip.style.display = 'none';
+            }
+
+            composer.render();
+        }
+        
+        function st_focused(obj) {
+            // Placeholder: Check if this object is the one currently selected in Streamlit
+            return false; 
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
