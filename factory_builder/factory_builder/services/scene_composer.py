@@ -9,6 +9,7 @@ log = get_logger("Composer")
 class SceneComposer:
     def __init__(self):
         self.scene = trimesh.Scene()
+        self.camera_data = {}  # Stores pre-computed camera coordinates per machine
 
     def build(self, layout: FactoryLayout, output_filename: str):
         log.info("🏗️ Assembling Final Scene...")
@@ -16,10 +17,12 @@ class SceneComposer:
         # 1. Floor
         self._add_floor(layout)
         
-        # 2. Machines
+        # 2. Machines - track camera coordinates
         for entity in layout.entities:
             if entity.type == "MACHINE":
-                self._place_machine(entity)
+                bbox_info = self._place_machine(entity)
+                if bbox_info:
+                    self._compute_camera_coords(entity.clean_name, bbox_info)
             elif entity.type == "PORT":
                 self._place_marker(entity, color=[255, 165, 0, 200])  # Orange
         
@@ -31,6 +34,9 @@ class SceneComposer:
         out_path = Config.OUTPUT_DIR / output_filename
         self.scene.export(str(out_path))
         log.info(f"🎉 SUCCESS. Scene saved to: {out_path}")
+        log.info(f"📷 Camera data computed for {len(self.camera_data)} machines")
+        
+        return str(out_path), self.camera_data
 
     def _add_floor(self, layout: FactoryLayout):
         w, h = layout.width * 1.2, layout.height * 1.2
@@ -42,6 +48,7 @@ class SceneComposer:
         self.scene.add_geometry(floor, node_name="floor")
 
     def _place_machine(self, entity: FactoryEntity):
+        """Place a machine in the scene and return its bounding box info."""
         mesh = None
         
         # Attempt to load generated model
@@ -90,6 +97,31 @@ class SceneComposer:
         self._apply_cad_transform(mesh, entity)
         # Use clean_name for node to ensure GLB compatibility
         self.scene.add_geometry(mesh, node_name=entity.clean_name)
+        
+        # Return bounding box info for camera coordinate computation
+        if hasattr(mesh, 'bounds'):
+            center = mesh.centroid.tolist() if hasattr(mesh, 'centroid') else [(mesh.bounds[0][i] + mesh.bounds[1][i]) / 2 for i in range(3)]
+            size = [mesh.bounds[1][i] - mesh.bounds[0][i] for i in range(3)]
+            return {'center': center, 'size': size}
+        return None
+    
+    def _compute_camera_coords(self, machine_id: str, bbox_info: dict):
+        """Compute optimal camera position and target for a machine."""
+        center = bbox_info['center']
+        size = bbox_info['size']
+        max_dim = max(size)
+        
+        # Camera distance: 2.5x the largest dimension for good framing
+        zoom_dist = max_dim * 2.5
+        
+        self.camera_data[machine_id] = {
+            'target': {'x': center[0], 'y': center[1], 'z': center[2]},
+            'position': {
+                'x': center[0] + zoom_dist,
+                'y': center[1] + zoom_dist,
+                'z': center[2] + zoom_dist
+            }
+        }
 
     def _place_marker(self, entity: FactoryEntity, color):
         """Place orange cylinder marker for ports (input/output)."""

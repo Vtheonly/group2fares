@@ -237,7 +237,27 @@ class FactoryOrchestrator:
         merged_path = Config.OUTPUT_DIR / merged_filename
         
         composer = SceneComposer()
-        composer.build(factory_layout, merged_filename)
+        result = composer.build(factory_layout, merged_filename)
+        
+        # Handle new tuple return (path, camera_data)
+        if isinstance(result, tuple):
+            scene_path_str, camera_data = result
+        else:
+            scene_path_str = result
+            camera_data = {}
+        
+        # Save camera coordinates to debug_layout.json
+        if camera_data:
+            debug_path = paths.get_debug_layout_path()
+            try:
+                with open(debug_path, 'r') as f:
+                    layout_json = json.load(f)
+                layout_json['camera_coords'] = camera_data
+                with open(debug_path, 'w') as f:
+                    json.dump(layout_json, f, indent=2)
+                logger.success(f"✓ Camera coords saved to: {debug_path}")
+            except Exception as e:
+                logger.warning(f"Could not update debug_layout.json with camera coords: {e}")
         
         # SceneComposer saves to Config.OUTPUT_DIR by default
         # Verify it exists
