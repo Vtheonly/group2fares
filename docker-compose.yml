@@ -1,46 +1,57 @@
 version: '3.8'
 
 services:
-  # Service 1: The Brain
+  # -----------------------------
+  # SERVICE 1: THE ARCHITECT
+  # Role: Logic, Planning, DXF Generation
+  # -----------------------------
   architect:
     build:
       context: .
       dockerfile: factory_architect/Dockerfile
     container_name: factory_architect
     volumes:
-      # Private Data
+      # 1. Private Data (Input/Output)
       - ./factory_architect/data:/app/factory_architect/data
-      # The Shared Bridge
+      # 2. Shared Bridge (Handover)
       - ./shared_data:/app/shared_data
-      # Code (Dev)
+      # 3. Live Code (Dev)
       - ./factory_architect:/app/factory_architect
     env_file: .env
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-    command: tail -f /dev/null # Keeps alive, waiting for CLI commands
+    # Keep alive waiting for commands
+    command: tail -f /dev/null 
 
-  # Service 2: The Constructor (+ Video Studio)
+  # -----------------------------
+  # SERVICE 2: THE BUILDER
+  # Role: 3D Models, Scraping, Scene Assembly, Video Studio
+  # -----------------------------
   builder:
     build:
       context: .
       dockerfile: factory_builder/Dockerfile
     container_name: factory_builder
     volumes:
-      # Private Data
+      # 1. Private Data (Assets, Cache, Scenes)
       - ./factory_builder/data:/app/factory_builder/data
-      # The Shared Bridge (Read Contract)
+      # 2. Shared Bridge (Read Contract)
       - ./shared_data:/app/shared_data
-      # Code (Dev)
+      # 3. Live Code (Dev)
       - ./factory_builder:/app/factory_builder
     env_file: .env
     environment:
       - VIDEO_ENGINE=blender
       - API_URL=${API_URL}
-    # Needs TTY for Blender subprocesses
+      - API_TIMEOUT=${API_TIMEOUT:-1200}
+    # TTY required for Blender subprocesses
     tty: true 
-    command: tail -f /dev/null 
+    command: tail -f /dev/null
 
-  # Service 3: The Digital Twin (Visualization)
+  # -----------------------------
+  # SERVICE 3: THE TWIN
+  # Role: User Interface, Visualization
+  # -----------------------------
   twin:
     build:
       context: .
@@ -49,11 +60,13 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      # Read Access to everything necessary for visualization
+      # 1. Read Access to Bridge (Project Discovery)
       - ./shared_data:/app/shared_data
+      # 2. Read Access to Builder Output (Serving GLBs)
       - ./factory_builder/data:/app/factory_builder/data
-      # Code (Dev)
+      # 3. Live Code (Dev)
       - ./dashboard:/app/dashboard
     environment:
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-    command: streamlit run dashboard/app.py
+    # Launch Streamlit
+    command: streamlit run dashboard/src/main.py --server.port=8501 --server.address=0.0.0.0

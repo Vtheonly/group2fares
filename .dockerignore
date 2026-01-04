@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Python Cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Project Data (We map these via Volumes, do not bake into image)
+factory_architect/data/
+factory_builder/data/
+shared_data/
+
+# Legacy/Root Data (Just in case)
+data/
+cache/
+input/
+output/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
