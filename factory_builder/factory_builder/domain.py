@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
+from typing import List, Tuple, Optional
 
 @dataclass
 class Vector3:
@@ -17,14 +17,17 @@ class FactoryEntity:
     rotation: float = 0.0
     dimensions: Tuple[float, float] = (2000.0, 2000.0)  # Length, Width
     
-    # Processing State
+    # Dynamic Paths (Set during asset acquisition)
     image_path: Optional[str] = None
     model_path: Optional[str] = None
     
     @property
     def clean_name(self) -> str:
         """Returns a filename-safe version of the name."""
-        return "".join([c if c.isalnum() else "_" for c in self.name]).strip()
+        import re
+        safe = re.sub(r'[^\w\s-]', '_', self.name)
+        safe = re.sub(r'\s+', '_', safe)
+        return safe.strip('_')
 
 @dataclass
 class ProductionLine:

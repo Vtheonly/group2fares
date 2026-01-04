@@ -1,232 +1,181 @@
 import trimesh
 import numpy as np
+import math
 from factory_builder.domain import FactoryLayout, FactoryEntity, ProductionLine
-from factory_builder.config import Config
 from factory_builder.utils import get_logger
 
 log = get_logger("Composer")
 
 class SceneComposer:
-    def __init__(self):
-        self.scene = trimesh.Scene()
-        self.camera_data = {}  # Stores pre-computed camera coordinates per machine
-
-    def build(self, layout: FactoryLayout, output_filename: str):
-        log.info("🏗️ Assembling Final Scene...")
+    def build(self, layout: FactoryLayout, output_path: str):
+        """
+        Assembles the factory scene and exports to GLB.
+        """
+        log.info("   🧩 Initializing Scene Composition...")
+        scene = trimesh.Scene()
         
-        # 1. Floor
-        self._add_floor(layout)
+        # 1. Add Floor
+        self._add_floor(scene, layout)
         
-        # 2. Machines - track camera coordinates
+        # 2. Add Machines
         for entity in layout.entities:
             if entity.type == "MACHINE":
-                bbox_info = self._place_machine(entity)
-                if bbox_info:
-                    self._compute_camera_coords(entity.clean_name, bbox_info)
+                self._place_machine(scene, entity)
             elif entity.type == "PORT":
-                self._place_marker(entity, color=[255, 165, 0, 200])  # Orange
+                self._place_marker(scene, entity)
         
-        # 3. Production Lines (Blue pipes with red turns)
+        # 3. Add Production Lines (Pipes)
         for line in layout.production_lines:
-            self._add_production_line(line)
+            self._add_production_line(scene, line)
 
         # 4. Export
-        out_path = Config.OUTPUT_DIR / output_filename
-        self.scene.export(str(out_path))
-        log.info(f"🎉 SUCCESS. Scene saved to: {out_path}")
-        log.info(f"📷 Camera data computed for {len(self.camera_data)} machines")
-        
-        return str(out_path), self.camera_data
+        try:
+            scene.export(output_path)
+            log.info(f"   💾 Scene saved to: {output_path}")
+            return True
+        except Exception as e:
+            log.error(f"   ❌ Failed to export scene: {e}")
+            return False
 
-    def _add_floor(self, layout: FactoryLayout):
-        w, h = layout.width * 1.2, layout.height * 1.2
-        floor = trimesh.creation.box(extents=(w, h, 10))
-        floor.visual.face_colors = [200, 200, 200, 255]
+    def _add_floor(self, scene, layout):
+        # Create a floor slightly larger than the bounds
+        w, h = layout.width * 1.5, layout.height * 1.5
+        floor = trimesh.creation.box(extents=(w, h, 20))
         
-        # Center and lower slightly
-        floor.apply_translation([layout.center.x, layout.center.y, -5])
-        self.scene.add_geometry(floor, node_name="floor")
+        # Color: Light concrete gray
+        floor.visual.face_colors = [220, 220, 220, 255]
+        
+        # Position: Centered and slightly below Z=0
+        floor.apply_translation([layout.center.x, layout.center.y, -10])
+        scene.add_geometry(floor, node_name="floor_concrete")
 
-    def _place_machine(self, entity: FactoryEntity):
-        """Place a machine in the scene and return its bounding box info."""
+    def _place_machine(self, scene, entity: FactoryEntity):
         mesh = None
         
-        # Attempt to load generated model
+        # A. Try Loading 3D Model
         if entity.model_path:
-            log.info(f"Loading model for {entity.name}: {entity.model_path}")
             try:
+                # Load GLB
                 loaded = trimesh.load(entity.model_path)
                 
-                # If it's a Scene (GLB), flatten to single mesh
+                # Handle Scene vs Mesh
                 if isinstance(loaded, trimesh.Scene):
-                    mesh = loaded.dump(concatenate=True)
+                    if len(loaded.geometry) == 0:
+                        raise ValueError("Empty GLB scene")
+                    # Dump all geometries into one mesh
+                    mesh = trimesh.util.concatenate(loaded.dump())
                 else:
                     mesh = loaded
-
-                # Normalize Scale
+                
+                # Normalize Scale (Target ~3000mm max dimension)
                 if hasattr(mesh, 'extents'):
-                    scale = Config.TARGET_MACHINE_SIZE / np.max(mesh.extents)
-                    mesh.apply_scale(scale)
+                    current_max = np.max(mesh.extents)
+                    if current_max > 0:
+                        scale_factor = 3000.0 / current_max
+                        mesh.apply_scale(scale_factor)
                 
-                # Force Gray Color
-                # Remove texture visuals if present to ensure color shows
-                if hasattr(mesh.visual, 'material'):
-                    mesh.visual.material = trimesh.visual.material.SimpleMaterial(image=None)
-                
-                # Set uniform gray
-                mesh.visual.face_colors = [150, 150, 150, 255]
-                
-                # Rotate X 90 (GLB Y-up vs CAD Z-up)
-                rot_x = trimesh.transformations.rotation_matrix(np.pi/2, [1,0,0])
-                mesh.apply_transform(rot_x)
-                log.info(f"✅ Loaded 3D model for: {entity.name}")
+                # Fix Rotation (GLB is usually Y-up, we need Z-up)
+                # Rotate 90 deg around X
+                rot_fix = trimesh.transformations.rotation_matrix(np.pi/2, [1,0,0])
+                mesh.apply_transform(rot_fix)
+
             except Exception as e:
-                log.warning(f"Failed to load model for {entity.name}: {e}")
+                log.warning(f"     [!] Failed to load model for {entity.name}: {e}. Using placeholder.")
                 mesh = None
-        else:
-            log.warning(f"⬜ No model_path for {entity.name} - using placeholder")
 
-        # Fallback Placeholder
-        if not mesh:
-            length, width = entity.dimensions
-            log.info(f"Using placeholder for {entity.name}: {length}x{width}")
-            mesh = trimesh.creation.box(extents=(length, width, 1000))
-            mesh.visual.face_colors = [100, 100, 100, 200]
+        # B. Fallback Placeholder (Box)
+        if mesh is None:
+            l, w = entity.dimensions
+            mesh = trimesh.creation.box(extents=(l, w, 1500))
+            mesh.visual.face_colors = [100, 100, 100, 255] # Dark Gray
         
-        # Position in Scene
-        self._apply_cad_transform(mesh, entity)
-        # Use clean_name for node to ensure GLB compatibility
-        self.scene.add_geometry(mesh, node_name=entity.clean_name)
+        # C. Apply Layout Transform
+        # 1. Rotate around Z (Layout rotation)
+        angle_rad = np.radians(entity.rotation)
+        rot_layout = trimesh.transformations.rotation_matrix(angle_rad, [0, 0, 1])
+        mesh.apply_transform(rot_layout)
         
-        # Return bounding box info for camera coordinate computation
-        if hasattr(mesh, 'bounds'):
-            center = mesh.centroid.tolist() if hasattr(mesh, 'centroid') else [(mesh.bounds[0][i] + mesh.bounds[1][i]) / 2 for i in range(3)]
-            size = [mesh.bounds[1][i] - mesh.bounds[0][i] for i in range(3)]
-            return {'center': center, 'size': size}
-        return None
-    
-    def _compute_camera_coords(self, machine_id: str, bbox_info: dict):
-        """Compute optimal camera position and target for a machine."""
-        center = bbox_info['center']
-        size = bbox_info['size']
-        max_dim = max(size)
-        
-        # Camera distance: 2.5x the largest dimension for good framing
-        zoom_dist = max_dim * 2.5
-        
-        self.camera_data[machine_id] = {
-            'target': {'x': center[0], 'y': center[1], 'z': center[2]},
-            'position': {
-                'x': center[0] + zoom_dist,
-                'y': center[1] + zoom_dist,
-                'z': center[2] + zoom_dist
-            }
-        }
-
-    def _place_marker(self, entity: FactoryEntity, color):
-        """Place orange cylinder marker for ports (input/output)."""
-        mesh = trimesh.creation.cylinder(radius=200, height=1000)
-        mesh.visual.face_colors = color
-        self._apply_cad_transform(mesh, entity)
-        self.scene.add_geometry(mesh, node_name=f"port_{entity.clean_name}")
-
-    def _add_production_line(self, line: ProductionLine):
-        """Render production line as blue pipes with red 90° turn markers."""
-        if len(line.vertices) < 2:
-            return
-        
-        PIPE_RADIUS = 100
-        BLUE = [30, 144, 255, 255]  # Dodger blue
-        RED = [255, 50, 50, 255]    # Bright red
-        
-        vertices = line.vertices
-        
-        for i in range(len(vertices) - 1):
-            p1 = np.array([vertices[i].x, vertices[i].y, 500])  # Elevate pipes
-            p2 = np.array([vertices[i+1].x, vertices[i+1].y, 500])
-            
-            # Create pipe segment
-            pipe = self._create_pipe_segment(p1, p2, PIPE_RADIUS)
-            if pipe:
-                pipe.visual.face_colors = BLUE
-                self.scene.add_geometry(pipe, node_name=f"pipe_{line.id}_{i}")
-            
-            # Check for 90° turn (compare with next segment if exists)
-            if i > 0:
-                p0 = np.array([vertices[i-1].x, vertices[i-1].y, 500])
-                angle = self._angle_between_segments(p0, p1, p2)
-                
-                # If angle is close to 90° (between 80° and 100°)
-                if 80 <= abs(angle) <= 100:
-                    corner = trimesh.creation.icosphere(radius=PIPE_RADIUS * 1.5)
-                    corner.visual.face_colors = RED
-                    corner.apply_translation(p1)
-                    self.scene.add_geometry(corner, node_name=f"turn_{line.id}_{i}")
-        
-        # Add orange markers at connection endpoints (machine ports)
-        start = vertices[0]
-        end = vertices[-1]
-        
-        for idx, pt in enumerate([start, end]):
-            marker = trimesh.creation.cylinder(radius=150, height=800)
-            marker.visual.face_colors = [255, 165, 0, 255]  # Orange
-            marker.apply_translation([pt.x, pt.y, 400])
-            port_name = line.from_id if idx == 0 else line.to_id
-            self.scene.add_geometry(marker, node_name=f"conn_{port_name}_{line.id}")
-
-    def _create_pipe_segment(self, p1: np.ndarray, p2: np.ndarray, radius: float):
-        """Create a cylinder between two 3D points."""
-        direction = p2 - p1
-        length = np.linalg.norm(direction)
-        if length < 1:
-            return None
-        
-        # Create cylinder along Z axis, then rotate to align with direction
-        pipe = trimesh.creation.cylinder(radius=radius, height=length)
-        
-        # Calculate rotation to align Z-axis with direction
-        direction_normalized = direction / length
-        z_axis = np.array([0, 0, 1])
-        
-        # Rotation axis (cross product)
-        axis = np.cross(z_axis, direction_normalized)
-        axis_norm = np.linalg.norm(axis)
-        
-        if axis_norm > 1e-6:
-            axis = axis / axis_norm
-            angle = np.arccos(np.clip(np.dot(z_axis, direction_normalized), -1, 1))
-            rotation = trimesh.transformations.rotation_matrix(angle, axis)
-            pipe.apply_transform(rotation)
-        
-        # Move to midpoint
-        midpoint = (p1 + p2) / 2
-        pipe.apply_translation(midpoint)
-        
-        return pipe
-
-    def _angle_between_segments(self, p0: np.ndarray, p1: np.ndarray, p2: np.ndarray) -> float:
-        """Calculate angle at p1 between segments p0->p1 and p1->p2."""
-        v1 = p0 - p1
-        v2 = p2 - p1
-        
-        # Use only X-Y plane
-        v1 = v1[:2]
-        v2 = v2[:2]
-        
-        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
-        angle_rad = np.arccos(np.clip(cos_angle, -1, 1))
-        return 180 - np.degrees(angle_rad)  # Interior angle
-
-    def _apply_cad_transform(self, mesh, entity: FactoryEntity):
-        # Rotation around Z
-        angle_rad = np.deg2rad(entity.rotation)
-        rot_matrix = trimesh.transformations.rotation_matrix(angle_rad, [0, 0, 1])
-        mesh.apply_transform(rot_matrix)
-        
-        # Translation
+        # 2. Translate to X, Y
         mesh.apply_translation([entity.position.x, entity.position.y, 0])
         
-        # Sit on floor
+        # 3. Align bottom to floor (Z=0)
         if hasattr(mesh, 'bounds'):
             z_min = mesh.bounds[0][2]
             mesh.apply_translation([0, 0, -z_min])
+
+        # Add to scene using clean name
+        scene.add_geometry(mesh, node_name=entity.clean_name)
+
+    def _place_marker(self, scene, entity):
+        # Helper for debugging ports
+        m = trimesh.creation.cylinder(radius=150, height=500)
+        m.visual.face_colors = [255, 165, 0, 255] # Orange
+        m.apply_translation([entity.position.x, entity.position.y, 250])
+        scene.add_geometry(m)
+
+    def _add_production_line(self, scene, line: ProductionLine):
+        """Renders pipes with elbows."""
+        if len(line.vertices) < 2:
+            return
+
+        PIPE_RADIUS = 120
+        PIPE_HEIGHT = 600 # Height off the floor
+        COLOR_PIPE = [30, 144, 255, 255] # Dodger Blue
+        COLOR_ELBOW = [255, 69, 0, 255]  # Red Orange
+
+        points = line.vertices
+        
+        for i in range(len(points) - 1):
+            p1 = np.array([points[i].x, points[i].y, PIPE_HEIGHT])
+            p2 = np.array([points[i+1].x, points[i+1].y, PIPE_HEIGHT])
+            
+            # Draw Straight Pipe
+            segment = self._create_cylinder_segment(p1, p2, PIPE_RADIUS)
+            if segment:
+                segment.visual.face_colors = COLOR_PIPE
+                scene.add_geometry(segment, node_name=f"pipe_{line.id}_{i}")
+            
+            # Draw Elbow/Joint at p2 (if not the last point)
+            if i < len(points) - 2:
+                elbow = trimesh.creation.icosphere(radius=PIPE_RADIUS * 1.4, subdivisions=2)
+                elbow.apply_translation(p2)
+                elbow.visual.face_colors = COLOR_ELBOW
+                scene.add_geometry(elbow, node_name=f"joint_{line.id}_{i}")
+
+        # Add vertical risers at start and end
+        for pt in [points[0], points[-1]]:
+            ground = np.array([pt.x, pt.y, 0])
+            air = np.array([pt.x, pt.y, PIPE_HEIGHT])
+            riser = self._create_cylinder_segment(ground, air, PIPE_RADIUS)
+            if riser:
+                riser.visual.face_colors = [50, 50, 50, 255] # Dark Gray
+                scene.add_geometry(riser)
+
+    def _create_cylinder_segment(self, p1, p2, radius):
+        """Creates a cylinder mesh connecting p1 and p2."""
+        vec = p2 - p1
+        length = np.linalg.norm(vec)
+        if length < 1.0: return None
+        
+        # Trimesh cylinder is created along Z. We must rotate it.
+        cyl = trimesh.creation.cylinder(radius=radius, height=length, sections=12)
+        
+        # Rotation matrix to align Z with vec
+        z_axis = np.array([0, 0, 1])
+        vec_norm = vec / length
+        
+        # Axis of rotation = cross product
+        rot_axis = np.cross(z_axis, vec_norm)
+        axis_len = np.linalg.norm(rot_axis)
+        
+        if axis_len > 1e-6:
+            rot_axis = rot_axis / axis_len
+            angle = np.arccos(np.clip(np.dot(z_axis, vec_norm), -1.0, 1.0))
+            matrix = trimesh.transformations.rotation_matrix(angle, rot_axis)
+            cyl.apply_transform(matrix)
+        
+        # Move to midpoint
+        midpoint = (p1 + p2) / 2
+        cyl.apply_translation(midpoint)
+        
+        return cyl

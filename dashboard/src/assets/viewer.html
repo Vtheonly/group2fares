@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { margin: 0; background: #0e1117; overflow: hidden; }
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00d2ff; font-family: monospace; }
+    </style>
+    <!-- Import Map for Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "@tweenjs/tween.js": "https://unpkg.com/@tweenjs/tween.js@23.1.1/dist/tween.esm.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="loader">INITIALIZING TWIN...</div>
+    
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import TWEEN from '@tweenjs/tween.js';
+
+        // --- INJECTED VARIABLES ---
+        /* INJECT_DATA_HERE */ 
+        // Variables available: MACHINE_CAM_DATA, MODEL_URL, TARGET_ID
+
+        // Setup Scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0e1117);
+        
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 100, 500000);
+        camera.position.set(20000, 20000, 20000); // Default start
+        
+        const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        document.body.appendChild(renderer.domElement);
+        
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // Lights
+        scene.add(new THREE.AmbientLight(0xffffff, 2.5));
+        const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+        sun.position.set(50000, 100000, 50000);
+        scene.add(sun);
+
+        // Load Model
+        const loader = new GLTFLoader();
+        loader.load(MODEL_URL, (gltf) => {
+            scene.add(gltf.scene);
+            document.getElementById('loader').style.display = 'none';
+            
+            // Initial Camera logic
+            if (TARGET_ID && MACHINE_CAM_DATA[TARGET_ID]) {
+                snapToMachine(TARGET_ID);
+            } else {
+                // Fit whole factory
+                const box = new THREE.Box3().setFromObject(gltf.scene);
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                
+                camera.position.set(center.x + maxDim, center.y - maxDim, center.z + maxDim);
+                controls.target.copy(center);
+            }
+        }, undefined, (err) => {
+            document.getElementById('loader').innerText = "ERROR: " + err;
+        });
+
+        // Camera Snap Logic
+        function snapToMachine(id) {
+            const data = MACHINE_CAM_DATA[id];
+            if (!data) return;
+
+            new TWEEN.Tween(camera.position)
+                .to(data.position, 1500)
+                .easing(TWEEN.Easing.Cubic.InOut)
+                .start();
+
+            new TWEEN.Tween(controls.target)
+                .to(data.target, 1500)
+                .easing(TWEEN.Easing.Cubic.InOut)
+                .start();
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            TWEEN.update(time);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

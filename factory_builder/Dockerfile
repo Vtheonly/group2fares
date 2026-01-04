@@ -1,23 +1,34 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-# Install system dependencies for trimesh/ezdxf
+# System deps (Heavy: Blender + Video Tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    blender \
+    ffmpeg \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+# Install Libs
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir \
+    trimesh[easy] \
+    numpy \
+    scipy \
+    requests \
+    beautifulsoup4 \
+    tenacity \
+    loguru \
+    ezdxf \
+    pydantic
 
-# Copy package
-COPY factory_builder/ ./factory_builder/
-COPY main.py .
+# Setup Paths
+RUN mkdir -p /app/factory_builder/data /app/shared_data
 
-# Create data directories
-RUN mkdir -p input output cache/images cache/models
+# Copy Source
+COPY factory_builder /app/factory_builder
 
-# Set entrypoint
-ENTRYPOINT ["python", "main.py"]
+# Add to path
+ENV PYTHONPATH=/app

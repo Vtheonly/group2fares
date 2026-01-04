@@ -1,269 +1,113 @@
-"""
-Orchestrator service - connects all pipeline stages end-to-end.
-Manages: image scraping → DXF generation → 3D model building → scene assembly
-"""
 import json
+import shutil
 import sys
 from pathlib import Path
 from loguru import logger
 
-# Add factory_builder to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "factory_builder"))
-
+# Context
+from src.core.context import ProjectContext
 from src.models.schema import FactoryInput, LayoutSchema
-from src.services.ai_engine import LayoutIntelligence
-from src.services.dxf_engine import DXFRenderer
-from src.services.scraper_client import ScraperClient
-from src.core.paths import ProjectPaths
 
+# Services
+from src.services.ai_engine import LayoutIntelligence, PlanerIntelligence
+from src.services.dxf_engine import DXFRenderer
+
+# Builder Import (Dynamic)
+sys.path.append("/app") # Ensure root is in path
 try:
-    from factory_builder.services.cloud_client import CloudRenderer
-    from factory_builder.services.scene_composer import SceneComposer
-    from factory_builder.domain import FactoryEntity, Vector3, FactoryLayout
+    from factory_builder.main import FactoryBuilder
     BUILDER_AVAILABLE = True
-except ImportError:
-    logger.warning("factory_builder modules not fully available")
+except ImportError as e:
+    logger.warning(f"Factory Builder not linked: {e}")
     BUILDER_AVAILABLE = False
 
+class PipelineOrchestrator:
+    def __init__(self, project_name: str):
+        self.ctx = ProjectContext(project_name)
+        self.ctx.initialize()
+        
+        # Agents
+        self.planer = PlanerIntelligence()
+        self.architect = LayoutIntelligence()
 
-class FactoryOrchestrator:
-    """
-    Orchestrates the complete factory generation pipeline.
-    """
-    
-    def __init__(self, output_dir: Path):
-        self.output_dir = Path(output_dir)
-        self.scraper = ScraperClient()
-        self.layout_ai = LayoutIntelligence()
-    
-    def execute(self, factory_input: FactoryInput) -> Path:
-        """
-        Execute the complete pipeline in strict sequential batches.
-        
-        1. Batch Scrape All Images
-        2. Generate DXF Layout
-        3. Batch Generate All 3D Models
-        4. Merge/Assemble Final Scene
-        """
-        logger.info("=" * 60)
-        logger.info("🏭 FACTORY ORCHESTRATION PIPELINE - STRICT SEQUENCE")
-        logger.info("=" * 60)
-        
-        # Initialize path structure (still used for DXF/Scene organization)
-        paths = ProjectPaths(self.output_dir, factory_input.project_name).setup()
-        
-        # --- PHASE 1: BATCH SCRAPE (Sequential) ---
-        logger.info("\n📸 PHASE 1: Batch Image Acquisition")
-        logger.info("-" * 60)
-        image_results = self._batch_scrape_images(factory_input)
-        
-        # --- PHASE 2: DXF GENERATION ---
-        logger.info("\n📐 PHASE 2: DXF Layout Generation")
-        logger.info("-" * 60)
-        layout = self._generate_dxf(factory_input, paths)
-        
-        # --- PHASE 3: BATCH 3D GENERATION (Sequential) ---
-        logger.info("\n🎨 PHASE 3: Batch 3D Model Generation")
-        logger.info("-" * 60)
-        model_results = self._batch_generate_3d_models(factory_input, image_results)
-        
-        # --- PHASE 4: FINAL MERGE ---
-        logger.info("\n🏗️ PHASE 4: Final Scene Merge")
-        logger.info("-" * 60)
-        scene_path = self._merge_scene(factory_input, paths, layout, model_results)
-        
-        logger.info("\n" + "=" * 60)
-        logger.success("🎉 PIPELINE COMPLETE")
-        logger.info("=" * 60)
-        logger.info(f"📁 Project Root: {paths.project_root}")
-        logger.info(f"📐 DXF Layout: {paths.get_dxf_path()}")
-        logger.info(f"🎨 Final Scene: {scene_path}")
-        
-        return scene_path
-    
-    def _batch_scrape_images(self, factory_input: FactoryInput) -> dict[str, bool]:
-        """Phase 1: Sequentially scrape images for ALL machines."""
-        machine_names = [m.name for m in factory_input.machines]
-        
-        # Call updated scraper client (no path mapping needed, saving to strict input dir)
-        results = self.scraper.scrape_all_machines(machine_names)
-        
-        successful = sum(1 for v in results.values() if v)
-        logger.success(f"✓ Batch scrape complete: {successful}/{len(machine_names)}")
-        
-        return results
+    def run(self):
+        logger.info("="*60)
+        logger.info(f"🚀 STARTING PIPELINE FOR: {self.ctx.project_name}")
+        logger.info("="*60)
 
-    def _generate_dxf(self, factory_input: FactoryInput, paths: ProjectPaths) -> LayoutSchema:
-        """Phase 2: Generate DXF layout using AI."""
-        # Compute layout
-        layout = self.layout_ai.compute_layout(factory_input)
+        # 1. Validation
+        self.ctx.validate_input()
+
+        # 2. Planning Phase (Input -> Intermediate JSON)
+        factory_input = self._phase_planning()
+
+        # 3. Architecture Phase (Intermediate JSON -> DXF + Debug)
+        layout_schema = self._phase_architecture(factory_input)
+
+        # 4. Handover Phase (Private -> Shared)
+        self._phase_handover(factory_input, layout_schema)
+
+        # 5. Construction Phase (Shared -> 3D Scene)
+        if BUILDER_AVAILABLE:
+            self._phase_construction()
+        else:
+            logger.warning("Construction phase skipped (Builder not found).")
+
+    def _phase_planning(self) -> FactoryInput:
+        logger.info("🧠 PHASE 1: Planning & Discovery")
         
-        # Save debug layout
-        debug_path = paths.get_debug_layout_path()
-        with open(debug_path, "w") as f:
+        with open(self.ctx.source_entry_file, "r") as f:
+            raw_data = json.load(f)
+
+        # The Planer extracts structure from unstructured notes
+        factory_input = self.planer.generate_input_schema(raw_data)
+        
+        # Save Intermediate Plan in Private Architect Folder
+        with open(self.ctx.plan_json, "w") as f:
+            json.dump(factory_input.model_dump(), f, indent=4)
+            
+        logger.success(f"✓ Plan generated: {self.ctx.plan_json}")
+        return factory_input
+
+    def _phase_architecture(self, data: FactoryInput) -> LayoutSchema:
+        logger.info("📐 PHASE 2: Geometric Architecture")
+        
+        # The Architect embeds the graph into 2D space
+        layout = self.architect.compute_layout(data)
+        
+        # Save Debug Data
+        with open(self.ctx.debug_json, "w") as f:
             f.write(layout.model_dump_json(indent=2))
-        logger.info(f"Debug layout saved: {debug_path}")
-        
+
         # Render DXF
-        dxf_path = paths.get_dxf_path()
-        renderer = DXFRenderer(str(dxf_path))
+        renderer = DXFRenderer(str(self.ctx.dxf_output))
         renderer.render(layout)
         
-        logger.success(f"✓ DXF generated: {dxf_path}")
-        
+        logger.success(f"✓ DXF generated: {self.ctx.dxf_output}")
         return layout
-    
-    def _batch_generate_3d_models(
-        self, 
-        factory_input: FactoryInput, 
-        image_results: dict[str, bool]
-    ) -> dict[str, Path]:
-        """Phase 3: Sequentially generate 3D models for ALL machines."""
-        
-        if not BUILDER_AVAILABLE:
-            logger.warning("⚠️ Factory builder not available - skipping 3D generation")
-            return {}
-            
-        from factory_builder.config import Config
-        from src.core.paths import sanitize_name
-        
-        cloud_renderer = CloudRenderer()
-        results = {}
-        
-        total = len(factory_input.machines)
-        logger.info(f"Starting batch 3D generation for {total} machines...")
-        
-        for i, machine in enumerate(factory_input.machines, 1):
-            logger.info(f"[{i}/{total}] Processing 3D: {machine.name}")
-            
-            # Check if image exists (from Phase 1)
-            safe_name = sanitize_name(machine.name)
-            image_path = Config.INPUT_DIR / f"{safe_name}.png"
-            
-            if not image_path.exists():
-                logger.warning(f"Skipping {machine.name} (image missing: {image_path})")
-                continue
 
-            # Strict Output Path: factory_builder/output/{MachineName}/{MachineName}.glb
-            # We use the sanitized name for the folder and file to be safe
-            machine_output_dir = Config.OUTPUT_DIR / safe_name
-            machine_output_dir.mkdir(parents=True, exist_ok=True)
-            target_glb_path = machine_output_dir / f"{safe_name}.glb"
-            
-            # Check cache
-            if target_glb_path.exists():
-                logger.info(f"Using cached model: {target_glb_path}")
-                results[machine.name] = target_glb_path
-                continue
-            
-            # Create entity for Cloud Client
-            entity = FactoryEntity(
-                id=machine.id,
-                name=machine.name,
-                type="MACHINE",
-                position=Vector3(0, 0),
-                image_path=str(image_path)
-            )
-            
-            # Generate
-            try:
-                # cloud_renderer._upload_and_stream saves to models_dir by default
-                # We need to move it to our target structure
-                generated_path = cloud_renderer._upload_and_stream(entity)
-                
-                if generated_path and Path(generated_path).exists():
-                    import shutil
-                    shutil.move(generated_path, target_glb_path)
-                    results[machine.name] = target_glb_path
-                    logger.success(f"✓ Model generated: {target_glb_path}")
-                else:
-                    logger.warning(f"✗ Generation failed for: {machine.name}")
-            
-            except Exception as e:
-                logger.error(f"Error generating {machine.name}: {e}")
-                
-        logger.success(f"✓ Batch 3D complete: {len(results)}/{total}")
-        return results
-    
-    def _merge_scene(
-        self,
-        factory_input: FactoryInput,
-        paths: ProjectPaths,
-        layout: LayoutSchema,
-        model_results: dict[str, Path]
-    ) -> Path:
-        """Phase 4: Merge individual GLBs into final scene."""
+    def _phase_handover(self, data: FactoryInput, layout: LayoutSchema):
+        logger.info("🤝 PHASE 3: Data Handover (Shared Bridge)")
         
-        if not BUILDER_AVAILABLE:
-            logger.warning("⚠️ Factory builder not available - skipping merge")
-            return paths.get_scene_path()
+        # 1. Copy DXF to Shared
+        shutil.copy(self.ctx.dxf_output, self.ctx.shared_dxf)
         
-        from factory_builder.config import Config
+        # 2. Create the Contract JSON for the Builder
+        # The builder needs the semantic info (names, dims) combined with spatial info
+        contract = {
+            "project": self.ctx.project_name,
+            "architecture_file": str(self.ctx.shared_dxf),
+            "machines": [m.model_dump() for m in data.machines],
+            "layout_coordinates": [m.model_dump() for m in layout.machines]
+        }
+        
+        with open(self.ctx.shared_json, "w") as f:
+            json.dump(contract, f, indent=4)
+            
+        logger.success(f"✓ Handover complete. Data ready in: {self.ctx.shared_root}")
 
-        # Prepare entities with correct positions and model paths
-        entities = []
-        for placed_machine in layout.machines:
-            input_machine = next(
-                (m for m in factory_input.machines if m.id == placed_machine.id),
-                None
-            )
-            if not input_machine: continue
-            
-            model_path = model_results.get(input_machine.name)
-            
-            entity = FactoryEntity(
-                id=placed_machine.id,
-                name=input_machine.name,
-                type="MACHINE",
-                position=Vector3(placed_machine.position.x, placed_machine.position.y, 0),
-                rotation=placed_machine.rotation,
-                model_path=str(model_path) if model_path else None
-            )
-            entities.append(entity)
-            
-        # Create Factory Layout
-        factory_layout = FactoryLayout(
-            source_file=str(paths.get_dxf_path()),
-            width=layout.room_width,
-            height=layout.room_height,
-            center=Vector3(layout.room_width/2, layout.room_height/2, 0),
-            entities=entities
-        )
+    def _phase_construction(self):
+        logger.info("🏗️ PHASE 4: 3D Construction")
         
-        # Merge
-        # We need to save to /app/factory_builder/output/{FactoryName}_Merged.glb
-        safe_project_name = paths.safe_project_name
-        merged_filename = f"{safe_project_name}_Merged.glb"
-        merged_path = Config.OUTPUT_DIR / merged_filename
-        
-        composer = SceneComposer()
-        result = composer.build(factory_layout, merged_filename)
-        
-        # Handle new tuple return (path, camera_data)
-        if isinstance(result, tuple):
-            scene_path_str, camera_data = result
-        else:
-            scene_path_str = result
-            camera_data = {}
-        
-        # Save camera coordinates to debug_layout.json
-        if camera_data:
-            debug_path = paths.get_debug_layout_path()
-            try:
-                with open(debug_path, 'r') as f:
-                    layout_json = json.load(f)
-                layout_json['camera_coords'] = camera_data
-                with open(debug_path, 'w') as f:
-                    json.dump(layout_json, f, indent=2)
-                logger.success(f"✓ Camera coords saved to: {debug_path}")
-            except Exception as e:
-                logger.warning(f"Could not update debug_layout.json with camera coords: {e}")
-        
-        # SceneComposer saves to Config.OUTPUT_DIR by default
-        # Verify it exists
-        if merged_path.exists():
-            logger.success(f"✓ Merged scene saved: {merged_path}")
-            return merged_path
-        else:
-            logger.error(f"❌ Merge failed. File not found: {merged_path}")
-            return paths.get_scene_path() # Fallback
+        builder = FactoryBuilder(self.ctx)
+        builder.execute()

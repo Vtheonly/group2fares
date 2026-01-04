@@ -1,9 +1,6 @@
-import time
 import requests
 import re
 from pathlib import Path
-from factory_builder.config import Config
-from factory_builder.domain import FactoryEntity
 from factory_builder.utils import get_logger
 
 log = get_logger("Scraper")
@@ -15,71 +12,68 @@ class ImageScraper:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         })
 
-    def process_entities(self, entities: list[FactoryEntity]):
-        """Iterates through entities and finds images for machines."""
-        machines = [e for e in entities if e.type == "MACHINE"]
-        log.info(f"Scouting images for {len(machines)} machines...")
-
-        for machine in machines:
-            self._find_image(machine)
-            time.sleep(1)  # Be nice to Google
-
-    def _find_image(self, entity: FactoryEntity):
-        # 1. Check Cache
-        save_path = Config.INPUT_DIR / f"{entity.clean_name}.png"
-        if save_path.exists():
-            entity.image_path = str(save_path)
-            return
-
-        # 2. Search Google Images
-        query = f"{entity.name} industrial machine"
-        log.info(f"Searching Google for: '{query}'")
+    def find_and_save(self, query: str, output_path: Path) -> bool:
+        """
+        Scrapes an image for 'query' and saves it to 'output_path'.
+        Returns True if successful, False otherwise.
+        """
+        # Augment query for better industrial results
+        search_query = f"{query} industrial machine equipment white background"
         
         try:
-            urls = self._search_google_images(query)
-            for url in urls:
-                if self._download(url, save_path):
-                    entity.image_path = str(save_path)
-                    log.info(f"✅ Found: {entity.name}")
-                    return
-            
-            log.warning(f"❌ No image found for: {entity.name}")
-        
-        except Exception as e:
-            log.error(f"Search failed for {entity.name}: {e}")
+            urls = self._search_google_images(search_query)
+            if not urls:
+                log.warning(f"No URLs found for: {query}")
+                return False
 
-    def _search_google_images(self, query: str, max_results: int = 10) -> list[str]:
-        """Scrapes Google Images for image URLs."""
-        search_url = "https://www.google.com/search"
+            for url in urls:
+                if self._download(url, output_path):
+                    return True
+            
+            return False
+
+        except Exception as e:
+            log.error(f"Scraping error for '{query}': {e}")
+            return False
+
+    def _search_google_images(self, query: str) -> list[str]:
+        """Parses Google Images results for direct image links."""
+        url = "https://www.google.com/search"
         params = {
             "q": query,
-            "tbm": "isch",  # Image search
+            "tbm": "isch",  # Image search mode
             "hl": "en",
         }
         
-        resp = self.session.get(search_url, params=params, timeout=10)
-        resp.raise_for_status()
-        
-        # Extract image URLs from the HTML
-        # Google embeds image URLs in various formats, this regex catches common patterns
-        pattern = r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp))"'
-        urls = re.findall(pattern, resp.text, re.IGNORECASE)
-        
-        # Filter out Google's own assets
-        urls = [u for u in urls if "gstatic.com" not in u and "google.com" not in u]
-        
-        return urls[:max_results]
+        try:
+            res = self.session.get(url, params=params, timeout=10)
+            res.raise_for_status()
+            
+            # Regex to find image URLs (heuristic)
+            # Looks for common image extensions in JSON blobs or HTML attributes
+            pattern = r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp))"'
+            urls = re.findall(pattern, res.text, re.IGNORECASE)
+            
+            # Filter out internal Google thumbnails or tracking links
+            clean_urls = [u for u in urls if "gstatic.com" not in u and "google.com" not in u]
+            return clean_urls[:8] # Return top 8 candidates
+
+        except Exception as e:
+            log.error(f"Search failed: {e}")
+            return []
 
     def _download(self, url: str, path: Path) -> bool:
+        """Attempts to download the image from the URL."""
         try:
-            resp = self.session.get(url, timeout=10)
-            resp.raise_for_status()
-            # Check if we got actual image content
-            content_type = resp.headers.get("Content-Type", "")
-            if "image" not in content_type and len(resp.content) < 1000:
-                return False
-            with open(path, "wb") as f:
-                f.write(resp.content)
-            return True
+            res = self.session.get(url, timeout=10)
+            if res.status_code == 200:
+                # Basic validation: ensure it's actually an image
+                if "image" not in res.headers.get("Content-Type", "") and len(res.content) < 1000:
+                    return False
+                
+                with open(path, "wb") as f:
+                    f.write(res.content)
+                return True
         except Exception:
-            return False
+            pass
+        return False

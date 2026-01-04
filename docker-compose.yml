@@ -1,20 +1,59 @@
 version: '3.8'
 
 services:
-  factory_pipeline:
-    build: .
-    container_name: ai_factory_generator
+  # Service 1: The Brain
+  architect:
+    build:
+      context: .
+      dockerfile: factory_architect/Dockerfile
+    container_name: factory_architect
     volumes:
-      - ./data:/app/data
-      # Persist 3D models and images to avoid re-scraping/re-generating
-      - ./cache:/app/factory_builder/cache
-    env_file:
-      - .env
+      # Private Data
+      - ./factory_architect/data:/app/factory_architect/data
+      # The Shared Bridge
+      - ./shared_data:/app/shared_data
+      # Code (Dev)
+      - ./factory_architect:/app/factory_architect
+    env_file: .env
     environment:
-      # Architect Config
-      - INPUT_FILE=/app/data/input.json
-      - OUTPUT_DIR=/app/data/output
-      # Builder Config
-      - MAX_WORKERS=1
-      - API_TIMEOUT=1200
-      # API Keys should be in .env, but can be passed here too
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    command: tail -f /dev/null # Keeps alive, waiting for CLI commands
+
+  # Service 2: The Constructor (+ Video Studio)
+  builder:
+    build:
+      context: .
+      dockerfile: factory_builder/Dockerfile
+    container_name: factory_builder
+    volumes:
+      # Private Data
+      - ./factory_builder/data:/app/factory_builder/data
+      # The Shared Bridge (Read Contract)
+      - ./shared_data:/app/shared_data
+      # Code (Dev)
+      - ./factory_builder:/app/factory_builder
+    env_file: .env
+    environment:
+      - VIDEO_ENGINE=blender
+      - API_URL=${API_URL}
+    # Needs TTY for Blender subprocesses
+    tty: true 
+    command: tail -f /dev/null 
+
+  # Service 3: The Digital Twin (Visualization)
+  twin:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: factory_twin
+    ports:
+      - "8501:8501"
+    volumes:
+      # Read Access to everything necessary for visualization
+      - ./shared_data:/app/shared_data
+      - ./factory_builder/data:/app/factory_builder/data
+      # Code (Dev)
+      - ./dashboard:/app/dashboard
+    environment:
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    command: streamlit run dashboard/app.py

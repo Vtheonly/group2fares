@@ -1,99 +1,60 @@
+import os
 import requests
-import concurrent.futures
 from pathlib import Path
-from factory_builder.config import Config
-from factory_builder.domain import FactoryEntity
 from factory_builder.utils import get_logger
 
-log = get_logger("Cloud_Client")
+log = get_logger("CloudRenderer")
 
 class CloudRenderer:
-    def generate_models(self, entities: list[FactoryEntity]):
-        """Sends images to the GPU server in parallel."""
-        
-        # Only process machines that have images
-        tasks = [e for e in entities if e.type == "MACHINE" and e.image_path]
-        
-        if not tasks:
-            log.warning("No machines with images found to render.")
-            return
+    def __init__(self):
+        # API Config is pulled from Environment Variables
+        self.api_url = os.getenv("API_URL")
+        self.timeout = int(os.getenv("API_TIMEOUT", "1200")) # 20 minutes default
 
-        log.info(f"🚀 Uploading {len(tasks)} machines to Cloud GPU ({Config.API_URL})...")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=Config.MAX_WORKERS) as executor:
-            future_to_entity = {
-                executor.submit(self._upload_and_stream, e): e 
-                for e in tasks
-            }
-
-            for future in concurrent.futures.as_completed(future_to_entity):
-                entity = future_to_entity[future]
-                try:
-                    result_path = future.result()
-                    if result_path:
-                        entity.model_path = result_path
-                except Exception as exc:
-                    log.error(f"Worker failed for {entity.name}: {exc}")
-
-    def _upload_and_stream(self, entity: FactoryEntity) -> str:
+    def generate(self, image_path: str, output_path: Path) -> bool:
         """
-        Uploads image -> Waits for GPU -> Streams GLB back to disk.
-        Logic matches the 'server-side' behavior of tencent2D3D.ipynb
+        Uploads image -> Waits for Processing -> Streams GLB to output_path.
         """
-        # Check Cache
-        output_path = Config.MODELS_DIR / f"{entity.clean_name}.glb"
-        if output_path.exists():
-            return str(output_path)
+        if not self.api_url:
+            log.error("API_URL not set in environment (check .env file).")
+            return False
+
+        if not os.path.exists(image_path):
+            log.error(f"Source image missing: {image_path}")
+            return False
 
         try:
-            with open(entity.image_path, 'rb') as f:
-                # Retry loop for connection/network issues
-                max_retries = 5
-                for attempt in range(max_retries):
-                    try:
-                        # Re-open file pointer for each attempt if needed or seek 0
-                        f.seek(0) 
-                        files = {'file': (f"{entity.clean_name}.png", f, 'image/png')}
-                        
-                        log.info(f"Uploading {entity.name} (Attempt {attempt+1}/{max_retries})...")
-                        
-                        # High timeout because Colab GPU queue handles requests sequentially
-                        response = requests.post(
-                            Config.API_URL, 
-                            files=files, 
-                            stream=True, 
-                            timeout=Config.API_TIMEOUT
-                        )
+            with open(image_path, 'rb') as f:
+                files = {'file': (Path(image_path).name, f, 'image/png')}
+                log.info(f"   🚀 Uploading to GPU Backend...")
+                
+                # POST request with stream=True to handle large binary response
+                response = requests.post(
+                    self.api_url, 
+                    files=files, 
+                    stream=True, 
+                    timeout=self.timeout
+                )
 
-                        if response.status_code == 200:
-                            # Ensure directory exists
-                            output_path.parent.mkdir(parents=True, exist_ok=True)
-                            
-                            # Write in chunks to keep memory usage low
-                            with open(output_path, 'wb') as f_out:
-                                for chunk in response.iter_content(chunk_size=8192):
-                                    if chunk: f_out.write(chunk)
-                            
-                            log.info(f"✨ Generated 3D Model: {entity.name}")
-                            return str(output_path)
-                        else:
-                            log.error(f"Server Error {entity.name}: {response.text}")
-                            # If 500 error, maybe retry? For now, break if server explicitly rejects
-                            if response.status_code < 500:
-                                return None
-                                
-                    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                        wait = (attempt + 1) * 5
-                        log.warning(f"Connection/Timeout for {entity.name}: {e}. Retrying in {wait}s...")
-                        import time
-                        time.sleep(wait)
-                    except Exception as e:
-                        log.error(f"Unexpected error for {entity.name}: {e}")
-                        return None
-                        
-                log.error(f"Failed to generate model for {entity.name} after {max_retries} attempts.")
-                return None
+                if response.status_code == 200:
+                    # Stream write to disk to save memory
+                    with open(output_path, 'wb') as out_f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk: out_f.write(chunk)
+                    
+                    log.info(f"   ✨ GLB Model Generated & Saved.")
+                    return True
+                
+                else:
+                    log.error(f"   ❌ Server Error {response.status_code}: {response.text}")
+                    return False
 
+        except requests.exceptions.ConnectionError:
+            log.error(f"   ❌ Could not connect to API at {self.api_url}. Is Ngrok running?")
+            return False
+        except requests.exceptions.Timeout:
+            log.error(f"   ❌ Request timed out after {self.timeout}s.")
+            return False
         except Exception as e:
-            log.error(f"File Error {entity.name}: {e}")
-            return None
+            log.error(f"   ❌ Unexpected Error: {e}")
+            return False
